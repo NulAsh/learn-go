@@ -5,11 +5,16 @@ import (
     "bufio"
     "os"
     "io/ioutil"
+    "strings"
+    "strconv"
+    "path/filepath"
 )
+
+const BUFFERSIZE = 1024
 
 func handleConnection(conn net.Conn) {
     defer conn.Close()
-    curDir, err := os.Getwd()
+    curDir, err := filepath.Abs(os.Getwd())
     if err != nil {
         fmt.Println("Error: " + err.Error())
         return
@@ -28,6 +33,7 @@ func handleConnection(conn net.Conn) {
                 fmt.Println("Error: " + err.Error())
                 return
             }
+            conn.Write([]byte(curDir))
             conn.Write([]byte(fmt.Sprintf("%d\n", len(files))))
             for _, file := range files {
                 conn.Write([]byte(fmt.Sprintf("%d", file.Size()) + " " + file.Name() + "\n"))
@@ -35,8 +41,39 @@ func handleConnection(conn net.Conn) {
             }
         case 'D':
             //
+            filename := filepath.Join(curDir, filepath.Base(strings.TrimSpace(message[1:])))
+            file, err := os.Open(filename)
+            if err != nil {
+                fmt.Println("Error " + err.Error())
+                conn.Write([]byte("Error " + err.Error() + "\n"))
+            } else {
+                fileinfo, err := os.Stat(filename)
+                if err != nil {
+                    fmt.Println("Error " + err.Error())
+                    conn.Write([]byte("Error " + err.Error() + "\n"))
+                } else {
+                    conn.Write([]byte(fmt.Sprintf("%d\n", fileinfo.Size())))
+                    sendBuffer := make([]byte, BUFFERSIZE)
+                    for {
+                        _, err = file.Read(sendBuffer)
+                        if err == io.EOF {
+                            break
+                        }
+                        connection.Write(sendBuffer)
+                    }
+                }
+            }
         case 'U':
             //
+            filename := filepath.Join(curDir, filepath.Base(strings.TrimSpace(message[1:])))
+            file, err := os.Create(filename)
+            if err != nil {
+                fmt.Println("Error " + err.Error())
+                conn.Write([]byte("Error " + err.Error() + "\n"))
+            } else {
+                filelenStr := strings.TrimSpace(bufio.NewReader(conn).ReadString('\n'))
+                filelen, err := strconv.ParseInt(
+            }
         }
         fmt.Printf("%#v\n", message)
     }
@@ -48,6 +85,7 @@ func main() {
         fmt.Println(err.Error())
         return
     }
+    defer ln.Close()
     for {
         conn, err := ln.Accept()
         if err != nil {
