@@ -4,6 +4,7 @@ import (
     "net"
     "bufio"
     "os"
+    "io"
     "io/ioutil"
     "strings"
     "strconv"
@@ -14,7 +15,12 @@ const BUFFERSIZE = 1024
 
 func handleConnection(conn net.Conn) {
     defer conn.Close()
-    curDir, err := filepath.Abs(os.Getwd())
+    curDir, err := os.Getwd()
+    if err != nil {
+        fmt.Println("Error: " + err.Error())
+        return
+    }
+    curDir, err = filepath.Abs(curDir)
     if err != nil {
         fmt.Println("Error: " + err.Error())
         return
@@ -34,7 +40,7 @@ func handleConnection(conn net.Conn) {
                 return
             }
             conn.Write([]byte(curDir))
-            conn.Write([]byte(fmt.Sprintf("%d\n", len(files))))
+            conn.Write([]byte(fmt.Sprintf("\n%d\n", len(files))))
             for _, file := range files {
                 conn.Write([]byte(fmt.Sprintf("%d", file.Size()) + " " + file.Name() + "\n"))
                 fmt.Println(file.Name())
@@ -54,13 +60,12 @@ func handleConnection(conn net.Conn) {
                     conn.Write([]byte("Error " + err.Error() + "\n"))
                 } else {
                     conn.Write([]byte(fmt.Sprintf("%d\n", fileinfo.Size())))
-                    sendBuffer := make([]byte, BUFFERSIZE)
-                    for {
-                        _, err = file.Read(sendBuffer)
-                        if err == io.EOF {
-                            break
-                        }
-                        conn.Write(sendBuffer)
+                    wbytes, err := io.Copy(conn, file)
+                    if err != nil {
+                        fmt.Println("Error " + err.Error())
+                        conn.Write([]byte("Error " + err.Error() + "\n"))
+                    } else if wbytes != fileinfo.Size() {
+                        fmt.Printf("%d bytes of %d written\n", wbytes, fileinfo.Size())
                     }
                 }
             }
@@ -73,21 +78,23 @@ func handleConnection(conn net.Conn) {
                 conn.Write([]byte("Error " + err.Error() + "\n"))
             } else {
                 defer file.Close()
-                filelenStr := strings.TrimSpace(bufio.NewReader(conn).ReadString('\n'))
-                filelen, err := strconv.ParseInt(filelenStr, 10, 64)
+                filelenStr, err := bufio.NewReader(conn).ReadString('\n')
                 if err != nil {
                     fmt.Println("Error " + err.Error())
                     conn.Write([]byte("Error " + err.Error() + "\n"))
                 } else {
-                    var receivedBytes int64
-                    for {
-                        if (fileSize - receivedBytes) < BUFFERSIZE {
-                            io.CopyN(newFile, connection, (fileSize - receivedBytes))
-                            connection.Read(make([]byte, (receivedBytes+BUFFERSIZE)-fileSize))
-                            break
+                    filelen, err := strconv.ParseInt(strings.TrimSpace(filelenStr), 10, 64)
+                    if err != nil {
+                        fmt.Println("Error " + err.Error())
+                        conn.Write([]byte("Error " + err.Error() + "\n"))
+                    } else {
+                        rbytes, err := io.CopyN(file, conn, filelen)
+                        if err != nil {
+                            fmt.Println("Error " + err.Error())
+                            conn.Write([]byte("Error " + err.Error() + "\n"))
+                        } else if rbytes != filelen {
+                            fmt.Printf("%d bytes of %d read\n", rbytes, filelen)
                         }
-                        io.CopyN(newFile, connection, BUFFERSIZE)
-                        receivedBytes += BUFFERSIZE
                     }
                 }
             }
