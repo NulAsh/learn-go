@@ -47,6 +47,7 @@ func handleConnection(conn net.Conn) {
                 fmt.Println("Error " + err.Error())
                 conn.Write([]byte("Error " + err.Error() + "\n"))
             } else {
+                defer file.Close()
                 fileinfo, err := os.Stat(filename)
                 if err != nil {
                     fmt.Println("Error " + err.Error())
@@ -59,7 +60,7 @@ func handleConnection(conn net.Conn) {
                         if err == io.EOF {
                             break
                         }
-                        connection.Write(sendBuffer)
+                        conn.Write(sendBuffer)
                     }
                 }
             }
@@ -71,8 +72,24 @@ func handleConnection(conn net.Conn) {
                 fmt.Println("Error " + err.Error())
                 conn.Write([]byte("Error " + err.Error() + "\n"))
             } else {
+                defer file.Close()
                 filelenStr := strings.TrimSpace(bufio.NewReader(conn).ReadString('\n'))
-                filelen, err := strconv.ParseInt(
+                filelen, err := strconv.ParseInt(filelenStr, 10, 64)
+                if err != nil {
+                    fmt.Println("Error " + err.Error())
+                    conn.Write([]byte("Error " + err.Error() + "\n"))
+                } else {
+                    var receivedBytes int64
+                    for {
+                        if (fileSize - receivedBytes) < BUFFERSIZE {
+                            io.CopyN(newFile, connection, (fileSize - receivedBytes))
+                            connection.Read(make([]byte, (receivedBytes+BUFFERSIZE)-fileSize))
+                            break
+                        }
+                        io.CopyN(newFile, connection, BUFFERSIZE)
+                        receivedBytes += BUFFERSIZE
+                    }
+                }
             }
         }
         fmt.Printf("%#v\n", message)
